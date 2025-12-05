@@ -1,0 +1,14 @@
+name: cantenna
+channels:
+    - conda-forge
+dependencies:
+    - python=3.11.11
+    - jupyter=1.1.1
+    - tk=8.6.13
+    - matplotlib=3.9.1
+    - cmocean=4.0.3
+    - scipy=1.14.1
+    - arm_pyart=1.19.3
+    - pyvisa=1.15.0
+    - pyvisa-py=0.8.1
+    - zeroconf=1.0.0
