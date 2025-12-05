@@ -10,6 +10,8 @@ Radar documentation [here](https://www.quonsetmicrowave.com/QM-RDKIT-p/qm-rdkit.
 conda env create -f cantenna.yml
 ```
 
+If you don't have a distribution of conda, a good one to grab is miniforge, which can be found [here](https://github.com/conda-forge/miniforge).
+
 ---
 
 ### Usage
