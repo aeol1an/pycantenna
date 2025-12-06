@@ -5,9 +5,6 @@ import pyvisa
 import numpy as np
 from math import floor, ceil
 
-import matplotlib
-from matplotlib import pyplot as plt
-
 import argparse
 from pathlib import Path
 
@@ -213,7 +210,9 @@ if __name__ == "__main__":
         "Other prefixes will be evaluated from the current working directory.",
     )
 
+    import matplotlib
     matplotlib.use('TkAgg')
+    from matplotlib import pyplot as plt
     plt.ioff()
 
     args = parser.parse_args()
@@ -271,25 +270,41 @@ if __name__ == "__main__":
             "Check the address or connect the radar."
         ) from e
 
+    #data collection function
+    def collect_data():
+        voltage, _, sample_freq = get_volatage(
+            radar, start_f_GHz, stop_f_GHz, mode, ramp_time_ms
+        )
 
-    #initial calculation to get dims
-    voltage, times, sample_freq = get_volatage(
-        radar, start_f_GHz, stop_f_GHz, mode, ramp_time_ms
-    )
-    voltage = voltage[0]
-    if mode == 'AUTOTRI':
-        voltage[1::2,:] = voltage[1::2,::-1]
-    ramp_samples = voltage.shape[-1]
-    nfft = ramp_samples*7
+        voltage = voltage[0]
+        if mode == 'AUTOTRI':
+            voltage[1::2,:] = voltage[1::2,::-1]
+        
+        ramp_samples = voltage.shape[-1]
+        nfft = ramp_samples*7
+        beats = (2*np.fft.fft(voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
+
+        if plottype == 0:
+            power = 20*np.log10(np.abs(beats))
+            if mode == 'AUTOTRI':
+                power = np.mean(power, axis=0)
+            return voltage, power, sample_freq, nfft
+        elif plottype == 1:
+            num_ramps = voltage.shape[0]
+            nvfft = num_ramps
+            range_doppler = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(beats, nvfft, axis=0), axes=0)))
+            return voltage, range_doppler, sample_freq, nfft, nvfft
+
+
+    #initial data collection and axes:
+    if plottype == 0:
+        voltage, power, sample_freq, nfft = collect_data()
+    elif plottype == 1:
+        voltage, range_doppler, sample_freq, nfft, nvfft = collect_data()
     freq_axis = (sample_freq/2) * np.linspace(0, 1, nfft//2)
     range_axis = (3e8 * (ramp_time_ms/1000) * freq_axis) / \
         (2 * ((stop_f_GHz-start_f_GHz)*1e9))
-    beats = (2*np.fft.fft(voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
-    power = 20*np.log10(np.abs(beats))
-    if mode == 'AUTOTRI':
-        num_ramps = voltage.shape[0]
-        nvfft = num_ramps
-        range_doppler = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(beats, nvfft, axis=0), axes=0))).T
+    if plottype == 1:
         va = (3e8/((stop_f_GHz+start_f_GHz)*(1e9/2))) / (4*ramp_time_ms/1000)
         v_axis = np.linspace(-va, va, nvfft)
 
@@ -302,7 +317,7 @@ if __name__ == "__main__":
         ax.set_xlabel("Range (m)")
         ax.set_ylabel("Signal Power (dB)")
         rline,= ax.plot([], [], color='b')
-    else:
+    elif plottype == 1:
         ax.set_title("Power Spectral Density Range-Doppler Plot")
         ax.set_xlabel("Doppler Velocity (m/s)")
         ax.set_ylabel("Range (m)")
@@ -312,53 +327,44 @@ if __name__ == "__main__":
         cbar = fig.colorbar(mesh, ax=ax)
         cbar.set_label("Power Spectral Density (dB)")
 
-    #handle closing by user
+    exited_by_user = False
     def on_close(event=None):
+        global exited_by_user
+        exited_by_user = True
         print("Closed by user. Exiting.")
-        exit(0)
-    fig.canvas.mpl_connect('close_event', on_close)
 
+    root = fig.canvas.manager.window
+    root.protocol("WM_DELETE_WINDOW", on_close)
+
+    #main loop
     n = 0
-    condition = lambda n: True if (args.numsweeps is None) else (n < args.numsweeps)
+    condition = lambda n: (
+        (True if (args.numsweeps is None) else (n < args.numsweeps)) and
+        (not exited_by_user)
+    )
     while condition(n):
         #recalculate for all subsequent:
         if n != 0:
-            voltage, times, sample_freq = get_volatage(
-                radar, start_f_GHz, stop_f_GHz, mode, ramp_time_ms
-            )
-            voltage = voltage[0]
-            if mode == 'AUTOTRI':
-                voltage[1::2,:] = voltage[1::2,::-1]
-            beats = (2*np.fft.fft(voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
-            power = 20*np.log10(np.abs(beats))
-            phase = np.angle(beats)
-            if mode == 'AUTOTRI' and plottype == 1:
-                num_ramps = voltage.shape[0]
-                nvfft = num_ramps
-                range_doppler = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(beats, nvfft, axis=0), axes=0))).T
-                va = (3e8/((stop_f_GHz+start_f_GHz)*(1e9/2))) / (4*ramp_time_ms/1000)
-                v_axis = np.linspace(-va, va, nvfft)
+            if plottype == 0:
+                voltage, power, sample_freq, nfft = collect_data()
+            elif plottype == 1:
+                voltage, range_doppler, sample_freq, nfft, nvfft = collect_data()
 
         #execute plotting
         if plottype == 0:
-            if mode == 'AUTOTRI':
-                power = np.mean(power, axis=0)
             rline.set_data(range_axis, power)
-            ax.relim()
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-            if savefigs:
-                fig.savefig(str(full_path)+f"_{n}.png", bbox_inches='tight')
-            plt.pause(sweep_delay)
         else:
-            mesh.set_array(range_doppler)
-            fig.canvas.draw()
-            fig.canvas.flush_events()
-            if savefigs:
-                fig.savefig(str(full_path)+f"_{n}.png", bbox_inches='tight')
-            plt.pause(sweep_delay)
+            mesh.set_array(range_doppler.T)
+
+        #update and save plot
+        ax.relim()
+        fig.canvas.draw()
+        fig.canvas.flush_events()
+        if savefigs:
+            fig.savefig(str(full_path)+f"_{n}.png", bbox_inches='tight')
+        plt.pause(sweep_delay)
 
         n += 1
 
     print("Finished plotting. Exiting.")
-    exit(0)
+    plt.close(fig)
