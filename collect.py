@@ -251,7 +251,7 @@ if __name__ == "__main__":
             if path_str.endswith(('/', '\\')) or file_path.is_dir():
                 raise ValueError(
                     f"--figprefix '{path_str}' appears to be a directory. "
-                    "Please provide a file prefix (e.g., 'folder/myplot')."
+                    "Please provide a file prefix (e.g., 'folder/fig')."
                 )
             full_path = file_path.resolve() 
             full_dir = full_path.parent
@@ -267,7 +267,7 @@ if __name__ == "__main__":
     savedata, _, data_path = validate_and_resolve_prefix(args.dataprefix)
 
     if not (args.numsweeps is None):
-        if args.numsweeps <= 1:
+        if args.numsweeps < 1:
             raise ValueError(f"Need minimum one sweep. You gave {args.numsweeps}.")
 
     rm = pyvisa.ResourceManager()
@@ -365,13 +365,15 @@ if __name__ == "__main__":
         else:
             mesh.set_array(range_doppler.T)
 
+        #set limits if first iteration
+        if n == 0:
+            ax.relim()
+            ax.autoscale_view()
+        
         #update and save plot
-        ax.relim()
-        fig.canvas.draw()
-        fig.canvas.flush_events()
+        plt.pause(sweep_delay)
         if savefigs:
             fig.savefig(str(fig_path)+f"_{n}.png", bbox_inches='tight')
-        plt.pause(sweep_delay)
 
         #save data
         if savedata:
