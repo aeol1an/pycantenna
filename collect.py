@@ -126,6 +126,14 @@ def get_volatage(
     return voltages, times, sample_freq
 
 if __name__ == "__main__":
+    import matplotlib
+    matplotlib.use('TkAgg')
+    from matplotlib import pyplot as plt
+    plt.ioff()
+
+    mode_int_to_str = ["RAMP", "TRI", "AUTOTRI"]
+    mode_str_to_int = {"RAMP":0, "TRI":1, "AUTOTRI":2}
+
     parser = argparse.ArgumentParser(
         description="Parses plotting options for radar."
     )
@@ -173,6 +181,15 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        '-w',
+        '--window',
+        type=str,
+        choices=['rectangular', 'hanning', 'hamming'],
+        help="Window to use for fft's. Defaults to rectangular",
+        default='rectangular'
+    )
+
+    parser.add_argument(
         '-d',
         '--delay',
         type=float,
@@ -216,12 +233,67 @@ if __name__ == "__main__":
         "Data files can be opened with np.load()."
     )
 
-    import matplotlib
-    matplotlib.use('TkAgg')
-    from matplotlib import pyplot as plt
-    plt.ioff()
+    parser.add_argument(
+        '-b',
+        '--backgroundnoise',
+        type=str,
+        help="Provide a file path containing background returns or "
+        "generate one if it doesn't exist. "
+        "Generating a file will override --numsweeps and set it to 1. "
+        "Providing an existing file will override --start, --stop, "
+        "--ramptime, --mode, and --window."
+    )
+
+    def validate_and_resolve_path(path_str, needs_to_be_dir):
+        if path_str is None:
+            if needs_to_be_dir:
+                return False, None
+            else:
+                return False, None, None
+
+        path_obj = Path(path_str)
+
+        if needs_to_be_dir:
+            full_dir = path_obj.resolve()
+            if not full_dir.exists():
+                raise FileNotFoundError(f"The directory '{full_dir}' does not exist.")
+            if not full_dir.is_dir():
+                raise NotADirectoryError(f"The path '{full_dir}' exists but is not a directory.")
+                
+            return True, full_dir
+
+        else:
+            if path_str.endswith(('/', '\\')) or path_obj.is_dir():
+                raise ValueError(
+                    f"'{path_str}' appears to be a directory. "
+                    "Please provide a file prefix."
+                )
+            full_path = path_obj.resolve()
+            full_dir = full_path.parent
+            if not full_dir.exists():
+                raise FileNotFoundError(f"The parent directory '{full_dir}' does not exist.")
+            if not full_dir.is_dir():
+                raise NotADirectoryError(f"The parent path '{full_dir}' exists but is not a directory.")
+
+            return True, full_dir, full_path
+
 
     args = parser.parse_args()
+
+    #first things first check the background and override options
+    create_bg = False
+    bg_passed, _, bgpath = validate_and_resolve_path(args.backgroundnoise, False)
+    if bg_passed:
+        if bgpath.exists():
+            bgdata = np.load(bgpath)
+            args.start = bgdata["start_f_GHz"].item()
+            args.stop = bgdata["stop_f_GHz"].item()
+            args.mode = mode_int_to_str[int(bgdata["mode"].item())]
+            args.ramptime = bgdata["ramp_time_ms"].item()
+            bg_beats = bgdata["beats"]
+        else:
+            create_bg = True
+            args.numsweeps = 1
 
     start_f_GHz = args.start
     stop_f_GHz = args.stop
@@ -243,28 +315,8 @@ if __name__ == "__main__":
                 "--mode must be 'AUTOTRI' for range-Doppler plots."
             )
     
-    def validate_and_resolve_prefix(path_str):
-        if path_str is None:
-            return False, None, None
-        else:
-            file_path = Path(path_str)
-            if path_str.endswith(('/', '\\')) or file_path.is_dir():
-                raise ValueError(
-                    f"--figprefix '{path_str}' appears to be a directory. "
-                    "Please provide a file prefix (e.g., 'folder/fig')."
-                )
-            full_path = file_path.resolve() 
-            full_dir = full_path.parent
-
-            # 5. Validate the directory
-            if not full_dir.exists():
-                raise FileNotFoundError(f"The directory '{full_dir}' does not exist.")
-            if not full_dir.is_dir():
-                raise NotADirectoryError(f"The path '{full_dir}' exists but is not a directory.")
-            return True, full_dir, full_path
-    
-    savefigs, _, fig_path = validate_and_resolve_prefix(args.figprefix)
-    savedata, _, data_path = validate_and_resolve_prefix(args.dataprefix)
+    savefigs, _, fig_path = validate_and_resolve_path(args.figprefix, False)
+    savedata, _, data_path = validate_and_resolve_path(args.dataprefix, False)
 
     if not (args.numsweeps is None):
         if args.numsweeps < 1:
@@ -292,6 +344,20 @@ if __name__ == "__main__":
         ramp_samples = voltage.shape[-1]
         nfft = ramp_samples*7
         beats = (2*np.fft.fft(voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
+
+        if bg_passed:
+            if create_bg:
+                print("Saving background")
+                np.savez(
+                    bgpath,
+                    start_f_GHz=start_f_GHz,
+                    stop_f_GHz=stop_f_GHz,
+                    ramp_time_ms=ramp_time_ms,
+                    mode=mode_str_to_int[mode],
+                    beats=beats
+                )
+            else:
+                beats = beats-bg_beats
 
         if plottype == 0:
             power = 20*np.log10(np.abs(beats))
@@ -384,6 +450,8 @@ if __name__ == "__main__":
             output_data["start_f_GHz"] = start_f_GHz
             output_data["stop_f_GHz"] = stop_f_GHz
             output_data["ramp_time_ms"] = ramp_time_ms
+            #scan mode
+            output_data["mode"] = mode_str_to_int[mode]
             #unambiguous velocity (calculated from constants)
             if plottype == 1:
                 output_data["va"] = va
