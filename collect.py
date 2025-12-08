@@ -373,6 +373,42 @@ if __name__ == "__main__":
             fig.savefig(str(fig_path)+f"_{n}.png", bbox_inches='tight')
         plt.pause(sweep_delay)
 
+        #save data
+        if savedata:
+            output_data = {}
+            #radar info
+            output_data["sample_freq"] = sample_freq
+            #scan params
+            output_data["start_f_GHz"] = start_f_GHz
+            output_data["stop_f_GHz"] = stop_f_GHz
+            output_data["ramp_time_ms"] = ramp_time_ms
+            #unambiguous velocity (calculated from constants)
+            if plottype == 1:
+                output_data["va"] = va
+            #dims and axes
+            output_data["ramp_samples"] = voltage.shape[-1]
+            if mode == "AUTOTRI":
+                output_data["num_ramps"] = voltage.shape[0]
+                output_data["total_samples"] = voltage.shape[-1]*voltage.shape[0]
+            else:
+                output_data["total_samples"] = voltage.shape[-1]
+            output_data["time_axis"] = \
+                (np.arange(output_data["total_samples"])*(1/sample_freq)).reshape(voltage.shape)
+            output_data["nfft"] = nfft
+            output_data["freq_axis"] = freq_axis
+            output_data["range_axis"] = range_axis
+            if plottype == 1:
+                output_data["nvfft"] = nvfft
+                output_data["v_axis"] = v_axis
+            #data
+            output_data["voltage"] = voltage
+            if plottype == 0:
+                output_data["power"] = power
+            elif plottype == 1:
+                output_data["range_doppler"] = range_doppler
+            
+            np.savez(str(data_path)+f"_{n}.npz", **output_data)
+
         n += 1
 
     if not exited_by_user:
