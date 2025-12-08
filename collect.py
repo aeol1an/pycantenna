@@ -238,26 +238,31 @@ if __name__ == "__main__":
                 "--mode must be 'AUTOTRI' for range-Doppler plots."
             )
     
-    if args.figprefix is None:
-        savefigs = False
-    else:
-        savefigs = True
-    if savefigs:
-        file_path = Path(args.figprefix)
-        if args.figprefix.endswith(('/', '\\')) or file_path.is_dir():
-            raise ValueError(
-                f"--figprefix '{args.figprefix}' appears to be a directory. "
-                "Please provide a file prefix (e.g., 'folder/myplot')."
-            )
-        full_path = file_path.resolve() 
-        figdir = full_path.parent
+    def validate_and_resolve_prefix(path_str):
+        if path_str is None:
+            savefigs = False
+        else:
+            savefigs = True
+        if savefigs:
+            file_path = Path(path_str)
+            if path_str.endswith(('/', '\\')) or file_path.is_dir():
+                raise ValueError(
+                    f"--figprefix '{path_str}' appears to be a directory. "
+                    "Please provide a file prefix (e.g., 'folder/myplot')."
+                )
+            full_path = file_path.resolve() 
+            full_dir = full_path.parent
 
-        # 5. Validate the directory
-        if not figdir.exists():
-            raise FileNotFoundError(f"The directory '{figdir}' does not exist.")
-        if not figdir.is_dir():
-            raise NotADirectoryError(f"The path '{figdir}' exists but is not a directory.")
+            # 5. Validate the directory
+            if not full_dir.exists():
+                raise FileNotFoundError(f"The directory '{full_dir}' does not exist.")
+            if not full_dir.is_dir():
+                raise NotADirectoryError(f"The path '{full_dir}' exists but is not a directory.")
+        return full_dir, full_path
     
+    _, fig_path = validate_and_resolve_prefix(args.figprefix)
+    _, 
+
     if not (args.numsweeps is None):
         if args.numsweeps <= 1:
             raise ValueError(f"Need minimum one sweep. You gave {args.numsweeps}.")
@@ -295,7 +300,6 @@ if __name__ == "__main__":
 
     #initial plot setup:
     fig = plt.figure(figsize=(6,6))
-    fig.show()
     ax = plt.axes()
     if plottype == 0:
         ax.set_title("Range", weight='bold')
@@ -311,6 +315,7 @@ if __name__ == "__main__":
         mesh = ax.pcolormesh(XX, YY, np.zeros_like(XX), vmin = -30, vmax = 10, cmap='terrain')
         cbar = fig.colorbar(mesh, ax=ax)
         cbar.set_label("Power Spectral Density (dB)")
+    fig.show()
 
     #handle closing by user
     def on_close(event=None):
