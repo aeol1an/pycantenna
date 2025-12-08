@@ -3,7 +3,8 @@ import time
 import pyvisa
 
 import numpy as np
-from math import floor, ceil
+from math import ceil
+import scipy.signal.windows as wn
 
 import argparse
 from pathlib import Path
@@ -132,7 +133,10 @@ if __name__ == "__main__":
     plt.ioff()
 
     mode_int_to_str = ["RAMP", "TRI", "AUTOTRI"]
-    mode_str_to_int = {"RAMP":0, "TRI":1, "AUTOTRI":2}
+    mode_str_to_int = {k: v for v, k in enumerate(mode_int_to_str)}
+
+    window_int_to_str = ["rectangular", "hanning", "hamming"]
+    window_str_to_int = {k: v for v, k in enumerate(window_int_to_str)}
 
     parser = argparse.ArgumentParser(
         description="Parses plotting options for radar."
@@ -241,7 +245,9 @@ if __name__ == "__main__":
         "generate one if it doesn't exist. "
         "Generating a file will override --numsweeps and set it to 1. "
         "Providing an existing file will override --start, --stop, "
-        "--ramptime, --mode, and --window."
+        "--ramptime, --mode, and --window. "
+        "Supercedes any other passed config because "
+        "saved array dimensions need to be equivalent."
     )
 
     def validate_and_resolve_path(path_str, needs_to_be_dir):
@@ -277,7 +283,6 @@ if __name__ == "__main__":
 
             return True, full_dir, full_path
 
-
     args = parser.parse_args()
 
     #first things first check the background and override options
@@ -285,13 +290,16 @@ if __name__ == "__main__":
     bg_passed, _, bgpath = validate_and_resolve_path(args.backgroundnoise, False)
     if bg_passed:
         if bgpath.exists():
+            print("Subtracting existing background measurement.")
             bgdata = np.load(bgpath)
             args.start = bgdata["start_f_GHz"].item()
             args.stop = bgdata["stop_f_GHz"].item()
             args.mode = mode_int_to_str[int(bgdata["mode"].item())]
             args.ramptime = bgdata["ramp_time_ms"].item()
+            args.window = window_int_to_str[int(bgdata["window"].item())]
             bg_beats = bgdata["beats"]
         else:
+            print(f"Creating new background measurement at {bgpath.name}.")
             create_bg = True
             args.numsweeps = 1
 
@@ -299,6 +307,13 @@ if __name__ == "__main__":
     stop_f_GHz = args.stop
     mode = args.mode
     ramp_time_ms = args.ramptime
+
+    if args.window == "rectangular":
+        w = wn.boxcar
+    elif args.window == "hanning":
+        w = wn.hann
+    elif args.window == "hamming":
+        w = wn.hamming
 
     sweep_delay = args.delay
     if sweep_delay < 0.25:
@@ -343,17 +358,18 @@ if __name__ == "__main__":
         
         ramp_samples = voltage.shape[-1]
         nfft = ramp_samples*7
-        beats = (2*np.fft.fft(voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
+        beats = (2*np.fft.fft(w(ramp_samples)*voltage, nfft, axis=-1)/ramp_samples)[...,0:nfft//2]
 
         if bg_passed:
             if create_bg:
-                print("Saving background")
+                print("Saving background measurement.")
                 np.savez(
                     bgpath,
                     start_f_GHz=start_f_GHz,
                     stop_f_GHz=stop_f_GHz,
                     ramp_time_ms=ramp_time_ms,
                     mode=mode_str_to_int[mode],
+                    window=window_str_to_int[args.window],
                     beats=beats
                 )
             else:
@@ -367,7 +383,13 @@ if __name__ == "__main__":
         elif plottype == 1:
             num_ramps = voltage.shape[0]
             nvfft = num_ramps
-            range_doppler = 10*np.log10(np.abs(np.fft.fftshift(np.fft.fft(beats, nvfft, axis=0), axes=0)))
+            range_doppler = 10*np.log10(
+                np.abs(
+                    np.fft.fftshift(
+                        np.fft.fft(w(num_ramps).reshape(-1, 1)*beats, nvfft, axis=0
+                    ), axes=0)
+                )
+            )
             return voltage, range_doppler, sample_freq, nfft, nvfft
 
 
@@ -391,6 +413,8 @@ if __name__ == "__main__":
         ax.set_xlabel("Range (m)")
         ax.set_ylabel("Signal Power (dB)")
         rline,= ax.plot([], [], color='b')
+        ax.set_xlim(range_axis[0]-1, range_axis[-1]+1)
+        ax.set_ylim(-70, -10)
     elif plottype == 1:
         ax.set_title("Power Spectral Density Range-Doppler Plot")
         ax.set_xlabel("Doppler Velocity (m/s)")
@@ -430,11 +454,6 @@ if __name__ == "__main__":
             rline.set_data(range_axis, power)
         else:
             mesh.set_array(range_doppler.T)
-
-        #set limits if first iteration
-        if n == 0:
-            ax.relim()
-            ax.autoscale_view()
         
         #update and save plot
         plt.pause(sweep_delay)
@@ -452,6 +471,8 @@ if __name__ == "__main__":
             output_data["ramp_time_ms"] = ramp_time_ms
             #scan mode
             output_data["mode"] = mode_str_to_int[mode]
+            #dsp window
+            output_data["window"] = window_str_to_int[args.window]
             #unambiguous velocity (calculated from constants)
             if plottype == 1:
                 output_data["va"] = va
