@@ -204,10 +204,16 @@ if __name__ == "__main__":
         '--figprefix',
         type=str,
         help="Figure file prefix (will append _n.png). "
-        "If omitted, figures will not be saved. "
-        "Prefixes beginning with / or containing ':' "
-        "as the second character (Windows) will be evaluated from root. "
-        "Other prefixes will be evaluated from the current working directory.",
+        "If omitted, figures will not be saved.",
+    )
+
+    parser.add_argument(
+        '-dp',
+        '--dataprefix',
+        type=str,
+        help="Data file prefix (will append _n.npz). "
+        "If omitted, data will not be saved. "
+        "Data files can be opened with np.load()."
     )
 
     import matplotlib
@@ -237,26 +243,29 @@ if __name__ == "__main__":
                 "--mode must be 'AUTOTRI' for range-Doppler plots."
             )
     
-    if args.figprefix is None:
-        savefigs = False
-    else:
-        savefigs = True
-    if savefigs:
-        file_path = Path(args.figprefix)
-        if args.figprefix.endswith(('/', '\\')) or file_path.is_dir():
-            raise ValueError(
-                f"--figprefix '{args.figprefix}' appears to be a directory. "
-                "Please provide a file prefix (e.g., 'folder/myplot')."
-            )
-        full_path = file_path.resolve() 
-        figdir = full_path.parent
+    def validate_and_resolve_prefix(path_str):
+        if path_str is None:
+            return False, None, None
+        else:
+            file_path = Path(path_str)
+            if path_str.endswith(('/', '\\')) or file_path.is_dir():
+                raise ValueError(
+                    f"--figprefix '{path_str}' appears to be a directory. "
+                    "Please provide a file prefix (e.g., 'folder/myplot')."
+                )
+            full_path = file_path.resolve() 
+            full_dir = full_path.parent
 
-        # 5. Validate the directory
-        if not figdir.exists():
-            raise FileNotFoundError(f"The directory '{figdir}' does not exist.")
-        if not figdir.is_dir():
-            raise NotADirectoryError(f"The path '{figdir}' exists but is not a directory.")
+            # 5. Validate the directory
+            if not full_dir.exists():
+                raise FileNotFoundError(f"The directory '{full_dir}' does not exist.")
+            if not full_dir.is_dir():
+                raise NotADirectoryError(f"The path '{full_dir}' exists but is not a directory.")
+            return True, full_dir, full_path
     
+    savefigs, _, fig_path = validate_and_resolve_prefix(args.figprefix)
+    savedata, _, data_path = validate_and_resolve_prefix(args.dataprefix)
+
     if not (args.numsweeps is None):
         if args.numsweeps <= 1:
             raise ValueError(f"Need minimum one sweep. You gave {args.numsweeps}.")
@@ -310,7 +319,6 @@ if __name__ == "__main__":
 
     #initial plot setup:
     fig = plt.figure(figsize=(6,6))
-    fig.show()
     ax = plt.axes()
     if plottype == 0:
         ax.set_title("Range", weight='bold')
@@ -326,6 +334,7 @@ if __name__ == "__main__":
         mesh = ax.pcolormesh(XX, YY, np.zeros_like(XX), vmin = -30, vmax = 10, cmap='terrain')
         cbar = fig.colorbar(mesh, ax=ax)
         cbar.set_label("Power Spectral Density (dB)")
+    fig.show()
 
     exited_by_user = False
     def on_close(event=None):
@@ -361,10 +370,11 @@ if __name__ == "__main__":
         fig.canvas.draw()
         fig.canvas.flush_events()
         if savefigs:
-            fig.savefig(str(full_path)+f"_{n}.png", bbox_inches='tight')
+            fig.savefig(str(fig_path)+f"_{n}.png", bbox_inches='tight')
         plt.pause(sweep_delay)
 
         n += 1
 
-    print("Finished plotting. Exiting.")
+    if not exited_by_user:
+        print("Finished plotting. Exiting.")
     plt.close(fig)
