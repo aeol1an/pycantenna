@@ -429,7 +429,10 @@ if __name__ == "__main__":
     exited_by_user = False
     def on_close(event=None):
         global exited_by_user
+        global sweep_delay
         exited_by_user = True
+        sweep_delay = 0.25 #need plot to close fast after x
+        fig.canvas.stop_event_loop() #unpause if needed
         print("Closed by user. Exiting.")
 
     root = fig.canvas.manager.window
