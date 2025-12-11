@@ -13,10 +13,19 @@ conda env create -f cantenna.yml
 If you don't have a distribution of conda, a good one to grab is miniforge, which can be found [here](https://github.com/conda-forge/miniforge).
 
 ---
+### Features
+
+1. Live plotting from the cantenna over USB (no Bluetooth).
+2. Ability to save figures as they are generated.
+3. Ability to save voltage data and processed data to an `npz` file. Documentation for [`np.savez`](https://numpy.org/devdocs/reference/generated/numpy.savez.html) and [`np.load`](https://numpy.org/devdocs/reference/generated/numpy.load.html).
+4. Supported waveforms are a single one-way ramp, a single two-way ramp (triangle), and a continuous two-way ramp.
+5. Range plots are possible with all waveforms, and range-Doppler plots are possible only with a continuous two-way ramp.
+
+---
 
 ### Usage
 
-1. Activate conda env that was just installed:
+1. Activate the conda env that was just installed:
 
     ```bash
     conda activate cantenna
