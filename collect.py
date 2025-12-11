@@ -139,7 +139,7 @@ if __name__ == "__main__":
     window_str_to_int = {k: v for v, k in enumerate(window_int_to_str)}
 
     parser = argparse.ArgumentParser(
-        description="Parses plotting options for radar."
+        description="CLI for Quonset Microwave RDK Cantenna Radar."
     )
     parser.add_argument(
         '-a',
